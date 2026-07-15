@@ -1,0 +1,33 @@
+{
+  "name": "stock-sentinel",
+  "version": "1.0.0",
+  "description": "Reliable, local-first product availability monitoring for Indian e-commerce and quick-commerce platforms.",
+  "author": "Stock Sentinel",
+  "license": "MIT",
+  "private": true,
+  "main": "dist/main/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "build": "tsc -p tsconfig.build.json",
+    "demo": "tsc -p tsconfig.demo.json && node dist/scripts/demo.js",
+    "serve": "tsc -p tsconfig.demo.json && node dist/scripts/serve.js",
+    "start": "npm run build && electron dist/main/main.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.3.0",
+    "electron": "^31.0.0",
+    "playwright": "^1.47.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,12 @@
+export * from './types';
+export * from './confidence';
+export * from './stateMachine';
+export * from './rateLimiter';
+export * from './circuitBreaker';
+export * from './scheduler';
+export * from './dedup';
+export * from './alertFactory';
+export * from './target';
+export { Engine } from './engine';
+export type { EngineDeps, EngineStorage, AlertDispatcher, EngineNotice } from './engine';
+export { pickBestCandidate } from './engine';
