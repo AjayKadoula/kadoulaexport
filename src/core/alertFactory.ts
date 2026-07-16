@@ -38,7 +38,10 @@ export function buildAlert(params: {
     state: transition.to,
     reason: transition.reason,
     price: obs.price ?? target.lastPrice,
-    url: obs.url ?? product.urls?.[target.platformId],
+    // Prefer the user-configured product URL: obs.url is the fetch's final
+    // URL, which for API/SPA checks can be an endpoint or landing page rather
+    // than the product page the user should open.
+    url: product.urls?.[target.platformId] ?? obs.url,
     confidence: obs.confidence,
     confidenceLevel: confidenceLevel(obs.confidence),
   };

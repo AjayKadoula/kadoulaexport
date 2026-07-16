@@ -12,6 +12,7 @@ import {
 } from '../../core/types';
 import { AdapterRuntime } from '../runtime';
 import { observationFrom } from '../base';
+import { anchorsWithInner, anchorTitle, firstRupeeMinor, titleMatchesQuery } from '../html';
 import { extractBigBasket, findProducts, parseNextData } from './signals';
 
 export const BIGBASKET_MANIFEST: PlatformManifest = {
@@ -35,6 +36,30 @@ export class BigBasketAdapter implements PlatformAdapter {
     if (raw.blocked || raw.empty) return [];
     const nextData = raw.kind === 'json' ? raw.json : parseNextData(raw.html ?? '');
     const products = findProducts(nextData);
+    // The live /ps/ search page client-fetches its results, so __NEXT_DATA__
+    // carries none; fall back to the rendered product-card anchors
+    // (/pd/<id>/<slug>/), which are the canonical product URLs.
+    if (products.length === 0 && raw.kind === 'html') {
+      const out: CandidateProduct[] = [];
+      for (const a of anchorsWithInner(raw.html ?? '')) {
+        const m = /\/pd\/(\d+)\/([^/?"']+)\/?/i.exec(a.href);
+        if (!m) continue;
+        if (out.some((c) => c.platformRef === m[1])) continue;
+        const title = anchorTitle(a.inner);
+        if (!title) continue;
+        // Skip cross-sell/recommendation cards that don't match the query.
+        if (!titleMatchesQuery(`${title} ${m[2]!.replace(/-/g, ' ')}`, q.text)) continue;
+        const minor = firstRupeeMinor(a.inner);
+        out.push({
+          title,
+          url: `https://www.bigbasket.com/pd/${m[1]}/${m[2]}/`,
+          platformRef: m[1]!,
+          price: minor !== undefined ? { minor, currency: 'INR' } : undefined,
+        });
+        if (out.length >= 10) break;
+      }
+      return out;
+    }
     return products.slice(0, 10).map((p) => {
       const desc = String((p as Record<string, unknown>)['desc'] ?? '');
       const absUrl = String((p as Record<string, unknown>)['absolute_url'] ?? '');

@@ -45,6 +45,10 @@ describe('web server', () => {
     state = await (await fetch(`${url}/api/state`)).json();
     expect(state.targets.length).toBe(1);
     expect(state.targets[0].platform).toBe('blinkit');
+    // Every target row carries the product NAME and a clickable URL — for a
+    // URL-mode product, the exact URL the user configured.
+    expect(state.targets[0].product).toBe('iPhone 17 Pro Max');
+    expect(state.targets[0].url).toBe('https://blinkit.com/prn/x/prid/1');
 
     // invalid pincode rejected
     const bad = await fetch(`${url}/api/locations`, { method: 'POST', body: JSON.stringify({ pincode: '12' }) });

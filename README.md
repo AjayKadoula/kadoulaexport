@@ -47,6 +47,9 @@ npm run serve
 #   🟢 Stock Sentinel is running
 #      URL:  http://127.0.0.1:4173
 
+# Headless web UI with REAL live monitoring (Playwright checks actual sites)
+RUNTIME=real npm run serve        # PowerShell: $env:RUNTIME='real'; npm run serve
+
 # Desktop app (requires the optional electron dependency)
 npm start
 
@@ -58,9 +61,13 @@ npm test
 npm run typecheck
 ```
 
-The `serve` and `demo` modes use a built-in **simulated runtime** so they run
-anywhere with zero network access; the desktop build wires the real
-Playwright-based runtime.
+By default `serve` and `demo` use a built-in **simulated runtime** so they run
+anywhere with zero network access. `RUNTIME=real` (or `--real`) swaps in the
+same Playwright runtime the desktop build uses: real page loads, real
+availability, real product links. Knobs: `HEADLESS=false` shows the browser;
+`PW_CHANNEL` picks the browser channel (default `chrome` — BigBasket's edge
+rejects the bundled Chromium but serves the machine's installed Chrome; it
+falls back to bundled Chromium automatically if Chrome isn't installed).
 
 ## How it works (one paragraph)
 

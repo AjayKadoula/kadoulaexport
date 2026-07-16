@@ -17,6 +17,7 @@ import { AlwaysOnlineProbe } from '../infra/netProbe';
 import { createLogger } from '../infra/log';
 import { AlertChannel, Alert, formatMoney, PlatformId } from '../core/types';
 import { ALL_PLATFORM_IDS, MANIFESTS } from '../adapters/registry';
+import { platformSearchUrl } from '../adapters/searchUrls';
 import { dashboardHtml } from './dashboard';
 import { isValidPincode } from '../app/materialize';
 
@@ -140,18 +141,31 @@ export class WebServer {
 
   private stateJson(): unknown {
     const dash = this.service.getDashboard();
-    const targets = dash.targets.map((t) => ({
-      id: t.id,
-      product: t.productId,
-      platform: t.platformId,
-      pincode: t.pincode,
-      state: t.state,
-      lastCommercial: t.lastCommercialState,
-      health: t.health,
-      price: formatMoney(t.lastPrice),
-      lastChecked: t.lastCheckedAt,
-      nextDue: t.nextDueAt,
-    }));
+    const products = new Map(this.opts.storage.listProducts().map((p) => [p.id, p]));
+    const targets = dash.targets.map((t) => {
+      const product = products.get(t.productId);
+      // Best available link for this target: the user-configured URL, else the
+      // resolved product page from search, else the platform's search for the
+      // watched keyword — every row gets something real to open.
+      const keyword = product?.keywords?.[0] ?? product?.name ?? t.productId;
+      const url =
+        product?.urls?.[t.platformId] ??
+        this.opts.storage.getResolution(t.id)?.url ??
+        platformSearchUrl(t.platformId, keyword);
+      return {
+        id: t.id,
+        product: product?.name ?? t.productId,
+        platform: t.platformId,
+        pincode: t.pincode,
+        state: t.state,
+        lastCommercial: t.lastCommercialState,
+        health: t.health,
+        price: formatMoney(t.lastPrice),
+        lastChecked: t.lastCheckedAt,
+        nextDue: t.nextDueAt,
+        url,
+      };
+    });
     return {
       offline: dash.offline,
       now: this.clock.now(),

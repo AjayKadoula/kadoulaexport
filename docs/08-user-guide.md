@@ -12,6 +12,10 @@ menu bar / system tray and keeps running even when the window is closed.
 
 **Web mode (advanced / servers):** run `npm run serve` and open the URL it
 prints (e.g. `http://127.0.0.1:4173`). It automatically picks a free port.
+By default this uses a **simulated** runtime (safe demo data, no site
+contact). For **real live monitoring** run it as `RUNTIME=real npm run serve`
+(PowerShell: `$env:RUNTIME='real'; npm run serve`) — it then checks the actual
+sites with the same browser engine the desktop app uses.
 
 ## 2. First run (about two minutes)
 
@@ -102,6 +106,8 @@ never sees your password). If a session later expires, you'll get a single
 | A platform shows "degraded" | Usually a site change; the app keeps other platforms running. Check for an app update. |
 | Lots of "Unknown" for one platform | The app couldn't read that platform confidently. Try signing in, or wait — it may be a temporary block (it backs off automatically). |
 | "Needs sign-in" | Click it and complete the login window. |
+| BigBasket stuck on "Unknown" / keyword never resolves | BigBasket's edge protection often rejects automated sessions outright. Add the product in **URL mode** (paste its `bigbasket.com/pd/…` link) — the product link in the app then always points at the right page even when reads are blocked. |
+| Quick-commerce shows Available but my pincode isn't served | In headless web mode, Zepto/Blinkit checks run without a per-pincode store session, so they reflect default/national availability (accurate for electronics shipped nationally; groceries vary by dark store). The desktop app's sign-in/location flow gives per-pincode truth. |
 | No alerts arriving | Settings → Alerts → **Send test** for each channel; check quiet hours. |
 | High memory after weeks | Normal browser contexts recycle every few hours; a restart fully resets. |
 

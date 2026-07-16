@@ -11,6 +11,7 @@ import {
 } from '../../core/types';
 import { AdapterRuntime } from '../runtime';
 import { observationFrom } from '../base';
+import { decodeEntities, titleMatchesQuery } from '../html';
 import { extractAmazon } from './signals';
 
 export const AMAZON_MANIFEST: PlatformManifest = {
@@ -36,13 +37,28 @@ export class AmazonAdapter implements PlatformAdapter {
     if (raw.kind !== 'html' || raw.blocked) return [];
     const html = raw.html ?? '';
     const out: CandidateProduct[] = [];
-    const re = /data-asin=["']([A-Z0-9]{10})["'][\s\S]{0,400}?alt=["']([^"']+)["']/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(html)) !== null && out.length < 10) {
+    // Parse per result block: the title (img alt / aria-label) sits thousands
+    // of characters after `data-asin` in real search HTML, so scan each block
+    // up to the next result rather than a fixed short window.
+    const blocks = html.split(/data-asin=["']/).slice(1);
+    const seen = new Set<string>();
+    for (const b of blocks) {
+      if (out.length >= 10) break;
+      const asin = b.slice(0, 10);
+      if (!/^[A-Z0-9]{10}$/.test(asin) || seen.has(asin)) continue;
+      const block = b.slice(0, 20000);
+      const alt = /alt=["']([^"']{3,})["']/.exec(block);
+      if (!alt) continue;
+      const title = decodeEntities(alt[1]!).replace(/^Sponsored Ad\s*[-–—]\s*/i, '').trim();
+      if (!title) continue;
+      // Search pages lead with sponsored/related items; only accept results
+      // that actually match the query.
+      if (!titleMatchesQuery(title, q.text)) continue;
+      seen.add(asin);
       out.push({
-        title: m[2]!,
-        url: `https://www.amazon.in/dp/${m[1]}`,
-        platformRef: m[1]!,
+        title,
+        url: `https://www.amazon.in/dp/${asin}`,
+        platformRef: asin,
       });
     }
     return out;

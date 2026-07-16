@@ -11,6 +11,7 @@ import {
 } from '../../core/types';
 import { AdapterRuntime } from '../runtime';
 import { observationFrom } from '../base';
+import { decodeEntities, titleMatchesQuery } from '../html';
 import { extractFlipkart } from './signals';
 
 export const FLIPKART_MANIFEST: PlatformManifest = {
@@ -41,8 +42,17 @@ export class FlipkartAdapter implements PlatformAdapter {
       const pid = m[2]!;
       if (seen.has(pid)) continue;
       seen.add(pid);
-      const url = m[1]!.startsWith('http') ? m[1]! : `https://www.flipkart.com${m[1]}`;
-      out.push({ title: pid, url, platformRef: pid });
+      // Hrefs scraped from raw HTML carry entity-encoded separators (&amp;);
+      // decode so the link opens with real query params.
+      const href = decodeEntities(m[1]!);
+      const url = href.startsWith('http') ? href : `https://www.flipkart.com${href}`;
+      // The product-page slug is the only title present near the href; use it
+      // so candidate-matching rules (mustInclude/mustExclude) see real words.
+      const slug = /flipkart\.com\/([^/?]+)\/p\/itm/i.exec(url)?.[1];
+      const title = slug ? slug.replace(/-/g, ' ') : pid;
+      // Skip sponsored/cross-sell cards that don't match the query.
+      if (slug && !titleMatchesQuery(title, q.text)) continue;
+      out.push({ title, url, platformRef: pid });
     }
     return out;
   }

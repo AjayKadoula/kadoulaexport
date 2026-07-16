@@ -11,6 +11,7 @@
 
 import { PlatformId } from '../core/types';
 import { AdapterRuntime, RawContent } from '../adapters/runtime';
+import { platformSearchUrl } from '../adapters/searchUrls';
 
 export interface SimOptions {
   now: () => number;
@@ -31,29 +32,35 @@ export class SimulatedRuntime implements AdapterRuntime {
     return { kind: 'json', json: {}, finalUrl: '' };
   }
 
-  async loadProduct(platform: PlatformId, resolved: { url?: string; platformRef?: string; pincode?: string }): Promise<RawContent> {
+  async loadProduct(platform: PlatformId, resolved: { url?: string; platformRef?: string; keyword?: string; productId?: string; pincode?: string }): Promise<RawContent> {
     const seed = hash(`${platform}:${resolved.url ?? resolved.platformRef ?? ''}`);
     const period = (this.opts.cyclePeriodS ?? 90) * 1000;
     const phase = (this.opts.now() + seed) % period;
     // In stock for a short window each cycle (~20%), to make restocks visible.
     const inStock = phase < period * 0.2;
     const price = 134900 - (seed % 5) * 1000;
-    return build(platform, inStock, price);
+    // Even though the stock data is simulated, the link the user can click
+    // must be real: echo the configured product URL, else link to the
+    // platform's search for the watched keyword. Never a fabricated URL.
+    const finalUrl =
+      resolved.url ??
+      platformSearchUrl(platform, resolved.keyword ?? resolved.productId ?? 'product');
+    return build(platform, inStock, price, finalUrl);
   }
 }
 
-function build(platform: PlatformId, inStock: boolean, price: number): RawContent {
+function build(platform: PlatformId, inStock: boolean, price: number, finalUrl: string): RawContent {
   switch (platform) {
     case 'bigbasket': {
       const next = { props: { pageProps: { productDetails: { children: [{ availability: { avail_status: inStock ? '001' : '002', not_for_sale: false }, pricing: { discount: { prim_price: { sp: String(price) } } } }] } } } };
-      return { kind: 'html', finalUrl: 'https://www.bigbasket.com/pd/1/x/', html: `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify(next)}</script>` };
+      return { kind: 'html', finalUrl, html: `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify(next)}</script>` };
     }
     case 'blinkit':
-      return { kind: 'json', finalUrl: 'https://blinkit.com/prn/x/prid/1', json: { products: [{ name: 'X', prid: 1, inventory: inStock ? 3 : 0, is_sold_out: !inStock, price }] } };
+      return { kind: 'json', finalUrl, json: { products: [{ name: 'X', prid: 1, inventory: inStock ? 3 : 0, is_sold_out: !inStock, price }] } };
     case 'zepto':
-      return { kind: 'json', finalUrl: 'https://www.zepto.com/pn/x/pvid/1', json: { data: { sections: [{ items: [{ availabilityStatus: inStock ? 'AVAILABLE' : 'OUT_OF_STOCK', outOfStock: !inStock, availableQuantity: inStock ? 2 : 0, sellingPrice: price * 100 }] }] } } };
+      return { kind: 'json', finalUrl, json: { data: { sections: [{ items: [{ availabilityStatus: inStock ? 'AVAILABLE' : 'OUT_OF_STOCK', outOfStock: !inStock, availableQuantity: inStock ? 2 : 0, sellingPrice: price * 100 }] }] } } };
     case 'instamart':
-      return { kind: 'json', finalUrl: 'https://swiggy.com/instamart', json: { data: { storeId: '1', widgets: [{ product: { variations: [{ inventory: { inStock }, price: { offerPrice: { units: price } } }] } }] } } };
+      return { kind: 'json', finalUrl, json: { data: { storeId: '1', widgets: [{ product: { variations: [{ inventory: { inStock }, price: { offerPrice: { units: price } } }] } }] } } };
     case 'flipkart':
     case 'amazon':
     default: {
@@ -61,8 +68,7 @@ function build(platform: PlatformId, inStock: boolean, price: number): RawConten
       const body = inStock
         ? `<div id="availability">In stock</div><input id="add-to-cart-button"><span class="a-offscreen">₹${price}</span><div class="dyC4hf">₹${price}</div><button>Add to Cart</button>`
         : `<div id="availability">Currently unavailable</div><div>Currently out of stock</div>`;
-      const url = platform === 'amazon' ? 'https://www.amazon.in/dp/XYZ' : 'https://www.flipkart.com/x/p/itm?pid=ABC';
-      return { kind: 'html', finalUrl: url, html: `<html><body>${ld}${body}</body></html>` };
+      return { kind: 'html', finalUrl, html: `<html><body>${ld}${body}</body></html>` };
     }
   }
 }

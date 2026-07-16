@@ -155,10 +155,13 @@ async function refresh(){
   $('#stats').innerHTML=order.filter(s=>counts[s]).map(s=>'<div class="stat">'+chip(s)+'<b>'+counts[s]+'</b></div>').join('')||'<div class="muted">No targets yet.</div>';
 
   // targets
-  $('#targets').innerHTML=d.targets.length?d.targets.map(t=>'<tr><td>'+esc(t.product)+'</td><td>'+t.platform+'</td><td>'+t.pincode+'</td><td>'+chip(t.state)+'</td><td>'+t.price+'</td><td class="muted">'+ago(t.lastChecked,now)+'</td><td class="muted">'+t.health+'</td></tr>').join(''):'<tr><td colspan="7" class="muted">No targets yet — add a product, a location, and enable a platform.</td></tr>';
+  $('#targets').innerHTML=d.targets.length?d.targets.map(t=>{
+    const name=t.url?'<a href="'+esc(t.url)+'" target="_blank" rel="noopener">'+esc(t.product)+'</a>':esc(t.product);
+    return '<tr><td>'+name+'</td><td>'+t.platform+'</td><td>'+t.pincode+'</td><td>'+chip(t.state)+'</td><td>'+t.price+'</td><td class="muted">'+ago(t.lastChecked,now)+'</td><td class="muted">'+t.health+'</td></tr>';
+  }).join(''):'<tr><td colspan="7" class="muted">No targets yet — add a product, a location, and enable a platform.</td></tr>';
 
   // alerts
-  $('#alerts').innerHTML=d.alerts.length?d.alerts.map(a=>'<div class="alert">'+chip(a.state)+' <b>'+esc(a.product)+'</b> on '+a.platform+' @ '+a.pincode+' — '+a.price+' <small>('+a.confidence+' confidence · '+a.reason+' · '+ago(a.at,now)+')</small>'+(a.url?' <a href="'+esc(a.url)+'" target="_blank">open</a>':'')+'</div>').join(''):'<div class="muted">No alerts yet.</div>';
+  $('#alerts').innerHTML=d.alerts.length?d.alerts.map(a=>'<div class="alert">'+chip(a.state)+' <b>'+esc(a.product)+'</b> on '+a.platform+' @ '+a.pincode+' — '+a.price+' <small>('+a.confidence+' confidence · '+a.reason+' · '+ago(a.at,now)+')</small>'+(a.url?' <a href="'+esc(a.url)+'" target="_blank" rel="noopener">open</a>':'')+'</div>').join(''):'<div class="muted">No alerts yet.</div>';
 }
 function esc(s){return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 refresh();setInterval(refresh,2500);

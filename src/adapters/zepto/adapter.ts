@@ -12,6 +12,7 @@ import {
 } from '../../core/types';
 import { AdapterRuntime } from '../runtime';
 import { observationFrom, collect } from '../base';
+import { anchorsWithInner, anchorTitle, firstRupeeMinor, titleMatchesQuery } from '../html';
 import { extractZepto } from './signals';
 
 export const ZEPTO_MANIFEST: PlatformManifest = {
@@ -32,7 +33,32 @@ export class ZeptoAdapter implements PlatformAdapter {
 
   async search(q: SearchQuery, ctx: CheckContext): Promise<CandidateProduct[]> {
     const raw = await this.runtime.search('zepto', q.text, ctx.pincode);
-    if (raw.kind !== 'json' || raw.blocked || raw.empty) return [];
+    if (raw.blocked || raw.empty) return [];
+    // Rendered search page (production runtime): product cards are anchors to
+    // /pn/<slug>/pvid/<uuid> — the canonical, openable product URL (the slug is
+    // real, and Zepto resolves by pvid regardless).
+    if (raw.kind === 'html') {
+      const out: CandidateProduct[] = [];
+      for (const a of anchorsWithInner(raw.html ?? '')) {
+        const m = /\/pn\/([^/?"']+)\/pvid\/([a-f0-9-]{36})/i.exec(a.href);
+        if (!m) continue;
+        if (out.some((c) => c.platformRef === m[2])) continue;
+        const title = anchorTitle(a.inner);
+        if (!title) continue;
+        // Rendered pages mix in trending/recommendation cards; only accept
+        // anchors that actually match the query.
+        if (!titleMatchesQuery(`${title} ${m[1]!.replace(/-/g, ' ')}`, q.text)) continue;
+        const minor = firstRupeeMinor(a.inner);
+        out.push({
+          title,
+          url: `https://www.zepto.com/pn/${m[1]}/pvid/${m[2]}`,
+          platformRef: m[2]!,
+          price: minor !== undefined ? { minor, currency: 'INR' } : undefined,
+        });
+        if (out.length >= 10) break;
+      }
+      return out;
+    }
     const nodes = collect(raw.json, (o) => 'productVariant' in o || ('name' in o && 'availabilityStatus' in o));
     return nodes.slice(0, 10).map((n) => {
       const variant = (n['productVariant'] as Record<string, unknown>) ?? n;

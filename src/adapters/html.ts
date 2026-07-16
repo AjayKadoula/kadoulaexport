@@ -63,6 +63,69 @@ export function jsonLdAvailability(html: string): string | undefined {
   return found;
 }
 
+/**
+ * Decode the HTML entities that appear inside attribute values we scrape
+ * (hrefs and titles). Attribute values captured from raw HTML carry `&amp;`
+ * etc.; a URL used as a link must carry the literal characters.
+ */
+export function decodeEntities(s: string): string {
+  return s
+    .replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&nbsp;/gi, ' ');
+}
+
+/**
+ * All <a href> elements with their (bounded) inner HTML. Used by adapters that
+ * parse rendered SPA search results, where each product card is an anchor
+ * whose href is the canonical product URL. Hrefs are entity-decoded.
+ */
+export function anchorsWithInner(html: string): Array<{ href: string; inner: string }> {
+  const out: Array<{ href: string; inner: string }> = [];
+  const re = /<a\b[^>]*?href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null && out.length < 5000) {
+    out.push({ href: decodeEntities(m[1]!), inner: m[2]! });
+  }
+  return out;
+}
+
+/** Title of a product card: prefer the product image's alt, else inner text. */
+export function anchorTitle(inner: string): string {
+  const alt = /alt=["']([^"']{3,})["']/.exec(inner);
+  if (alt) return decodeEntities(alt[1]!).trim();
+  return stripTags(inner).slice(0, 120).trim();
+}
+
+/**
+ * True when a candidate title plausibly matches the search query: a strict
+ * majority of the query's tokens (length ≥ 2) appear in the title. Guards
+ * against harvesting recommendation-rail / sponsored / trending items that
+ * rendered search pages mix in — especially on zero-result pages, where
+ * resolving a foreign product would make the app report availability for
+ * something the user never asked to watch.
+ */
+export function titleMatchesQuery(title: string, query: string): boolean {
+  const tokens = query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 2);
+  if (tokens.length === 0) return true;
+  const hay = title.toLowerCase();
+  const hits = tokens.filter((t) => hay.includes(t)).length;
+  return hits * 2 > tokens.length;
+}
+
+/** First rupee amount in a card's text, in minor units (paise). */
+export function firstRupeeMinor(inner: string): number | undefined {
+  const m = /₹\s?([\d,]+(?:\.\d+)?)/.exec(stripTags(inner));
+  if (!m) return undefined;
+  const n = parseFloat(m[1]!.replace(/,/g, ''));
+  return Number.isFinite(n) ? Math.round(n * 100) : undefined;
+}
+
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

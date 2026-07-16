@@ -129,6 +129,18 @@ Zepto's signing scheme — a major fragility source), then poll `/api/v3/search`
 reusing that context and read `outOfStock`/`availableQuantity`/
 `availabilityStatus`. Three pincodes = three resolved store contexts.
 
+> **2026-07 live validation update.** The product page (`/pn/<slug>/pvid/<id>`)
+> now renders headlessly with no location set and makes **no interceptable
+> availability API call on load** — the data ships inside the page (RSC flight
+> payload). The page embeds **schema.org Offer microdata**
+> (`<link href="http://schema.org/InStock" itemprop="availability">` +
+> `itemprop="price"`), corroborated by the Add to Cart control. The
+> implemented check therefore navigates the product URL and reads the
+> microdata + buy control conjunction (see `zepto/signals.ts`,
+> `extractZeptoHtml`); ambiguity still ⇒ UNKNOWN. The `/api/v3/search` poll
+> remains the documented fallback for store-scoped checks. Keyword search is
+> served by the rendered `/search?query=` page's product-card anchors.
+
 ---
 
 ## Summary

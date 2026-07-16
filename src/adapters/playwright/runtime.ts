@@ -27,6 +27,10 @@ import {
   SessionProbe,
 } from '../../core/types';
 import { AdapterRuntime, RawContent } from '../runtime';
+import { platformSearchUrl } from '../searchUrls';
+
+/** How long to let a client-rendered search page paint before reading it. */
+const SPA_RENDER_WAIT_MS = 4000;
 
 // Minimal structural types so this file compiles without @types/playwright.
 interface PwPage {
@@ -64,6 +68,14 @@ export interface PlaywrightRuntimeOptions {
   maxContextAgeMs?: number;
   navTimeoutMs?: number;
   headless?: boolean;
+  /**
+   * Playwright browser channel, e.g. 'chrome' to drive the machine's installed
+   * Google Chrome. BigBasket's edge (Akamai) rejects the bundled Chromium
+   * build outright but serves the real Chrome normally, so 'chrome' is the
+   * recommended channel when it is installed. Falls back to bundled Chromium
+   * if the channel is unavailable.
+   */
+  channel?: string;
 }
 
 export class PlaywrightRuntime implements AdapterRuntime {
@@ -79,9 +91,21 @@ export class PlaywrightRuntime implements AdapterRuntime {
     if (this.browser) return this.browser;
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { chromium } = require('playwright');
-    this.browser = (await chromium.launch({
-      headless: this.opts.headless ?? true,
-    })) as PwBrowser;
+    const base = { headless: this.opts.headless ?? true };
+    if (this.opts.channel) {
+      try {
+        this.browser = (await chromium.launch({ ...base, channel: this.opts.channel })) as PwBrowser;
+        return this.browser;
+      } catch (err) {
+        // Falling back silently would hide edge-blocking consequences (e.g.
+        // BigBasket 403s the bundled Chromium) — make the downgrade visible.
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[playwright] channel '${this.opts.channel}' failed to launch (${String(err).slice(0, 200)}); falling back to bundled Chromium`,
+        );
+      }
+    }
+    this.browser = (await chromium.launch(base)) as PwBrowser;
     return this.browser;
   }
 
@@ -237,8 +261,16 @@ async function loadProductContent(
     case 'flipkart':
     case 'bigbasket': {
       if (!url) return { kind: 'html', finalUrl: '', html: '', empty: true };
-      const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
-      const status = (resp && typeof resp.status === 'function' ? resp.status() : 200) as number;
+      let resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
+      let status = (resp && typeof resp.status === 'function' ? resp.status() : 200) as number;
+      if (platform === 'bigbasket' && status === 403) {
+        // Akamai rejects cold contexts; a home-page visit seeds the edge
+        // cookies, after which the product page loads. One retry only.
+        await page.goto('https://www.bigbasket.com/', { waitUntil: 'domcontentloaded', timeout }).catch(() => undefined);
+        await page.waitForTimeout(1500);
+        resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
+        status = (resp && typeof resp.status === 'function' ? resp.status() : 200) as number;
+      }
       if (platform === 'flipkart') {
         // Enter the pincode into the widget so we read location-specific stock.
         try {
@@ -259,8 +291,26 @@ async function loadProductContent(
         loginWall: /ap\/signin|\/login/i.test(page.url()),
       };
     }
+    case 'zepto': {
+      // The product page embeds its availability as schema.org Offer microdata
+      // and renders headlessly with no location set (verified live 2026-07).
+      // No interceptable availability API exists on page load, so the rendered
+      // page IS the truth source; extractZepto reads the structured microdata.
+      if (!url) return { kind: 'html', finalUrl: '', html: '', empty: true };
+      const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
+      const status = (resp && typeof resp.status === 'function' ? resp.status() : 200) as number;
+      await page.waitForTimeout(SPA_RENDER_WAIT_MS);
+      const html = await page.content();
+      return {
+        kind: 'html',
+        html,
+        finalUrl: page.url(),
+        httpStatus: status,
+        blocked: looksBlocked(html, status),
+        empty: html.length < 5000, // SPA shell that never hydrated
+      };
+    }
     case 'blinkit':
-    case 'zepto':
     case 'instamart': {
       // SPA: navigate, then read the internal API JSON the app fetched. We use
       // the page's own fetch so requests carry the genuine context/cookies.
@@ -302,18 +352,13 @@ async function loadProductContent(
 }
 
 function internalEndpoint(platform: PlatformId, resolved: ResolvedTarget): string | undefined {
-  const ref = resolved.platformRef;
   switch (platform) {
     case 'blinkit':
       return resolved.keyword
         ? `https://blinkit.com/v6/search/products?q=${encodeURIComponent(resolved.keyword)}&search_type=6`
         : undefined;
-    case 'zepto':
-      return resolved.keyword
-        ? `https://api.zeptonow.com/api/v3/search`
-        : undefined;
     case 'instamart':
-      return ref ? undefined : undefined; // built at runtime with storeId; needs context
+      return undefined; // needs a storeId resolved from the session; no static endpoint
     default:
       return undefined;
   }
@@ -333,22 +378,40 @@ function extractEmbeddedJson(html: string): unknown {
 
 async function runSearch(platform: PlatformId, page: PwPage, query: string, timeout: number): Promise<RawContent> {
   switch (platform) {
-    case 'amazon': {
-      const resp = await page.goto(`https://www.amazon.in/s?k=${encodeURIComponent(query)}`, { waitUntil: 'domcontentloaded', timeout });
-      const status = (resp && typeof resp.status === 'function' ? resp.status() : 200) as number;
-      const html = await page.content();
-      return { kind: 'html', html, finalUrl: page.url(), httpStatus: status, blocked: looksBlocked(html, status) };
-    }
+    case 'amazon':
     case 'flipkart': {
-      const resp = await page.goto(`https://www.flipkart.com/search?q=${encodeURIComponent(query)}`, { waitUntil: 'domcontentloaded', timeout });
+      const resp = await page.goto(platformSearchUrl(platform, query), { waitUntil: 'domcontentloaded', timeout });
       const status = (resp && typeof resp.status === 'function' ? resp.status() : 200) as number;
       const html = await page.content();
       return { kind: 'html', html, finalUrl: page.url(), httpStatus: status, blocked: looksBlocked(html, status) };
     }
-    default: {
-      // Quick-commerce search via internal API using the located context.
+    case 'bigbasket': {
+      // Akamai rejects cold clients; visiting the home page first seeds the
+      // edge cookies for this context, then the search page can load.
+      await page.goto('https://www.bigbasket.com/', { waitUntil: 'domcontentloaded', timeout }).catch(() => undefined);
+      await page.waitForTimeout(1500);
+      const resp = await page.goto(platformSearchUrl(platform, query), { waitUntil: 'domcontentloaded', timeout });
+      const status = (resp && typeof resp.status === 'function' ? resp.status() : 200) as number;
+      await page.waitForTimeout(SPA_RENDER_WAIT_MS);
       const html = await page.content();
-      return { kind: 'json', json: extractEmbeddedJson(html), finalUrl: page.url() };
+      return { kind: 'html', html, finalUrl: page.url(), httpStatus: status, blocked: looksBlocked(html, status) };
+    }
+    case 'instamart':
+      // Swiggy's WAF serves stubs to headless clients and search needs a
+      // located store session; skip the wasted page load. The adapter reports
+      // no candidates and the target stays keyword-monitored.
+      return { kind: 'json', json: undefined, finalUrl: '', empty: true };
+    default: {
+      // Quick-commerce SPAs (zepto/blinkit): navigate to the real search
+      // page, let it render, and return the rendered HTML — the adapters
+      // parse the product-card anchors, whose hrefs are canonical product
+      // URLs. (Previously this branch read a blank page and every keyword
+      // search returned nothing.)
+      const resp = await page.goto(platformSearchUrl(platform, query), { waitUntil: 'domcontentloaded', timeout });
+      const status = (resp && typeof resp.status === 'function' ? resp.status() : 200) as number;
+      await page.waitForTimeout(SPA_RENDER_WAIT_MS);
+      const html = await page.content();
+      return { kind: 'html', html, finalUrl: page.url(), httpStatus: status, blocked: looksBlocked(html, status) };
     }
   }
 }
